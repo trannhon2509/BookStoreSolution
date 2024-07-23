@@ -7,102 +7,104 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using BookStore.BOL.Entities;
 using BookStore.DAL.Data;
+using AutoMapper;
+using Microsoft.AspNetCore.OData.Query;
+using BookStore.Api.Dtos;
+using Microsoft.AspNetCore.OData.Routing.Controllers;
 
 namespace BookStore.Api.Controllers
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class OrderDetailsController : ControllerBase
+    public class OrderDetailsController : ODataController
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMapper _mapper;
 
-        public OrderDetailsController(ApplicationDbContext context)
+        public OrderDetailsController(ApplicationDbContext context, IMapper mapper)
         {
             _context = context;
+            _mapper = mapper;
         }
 
-        // GET: api/OrderDetails
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<OrderDetail>>> GetOrderDetails()
+        [EnableQuery]
+        public IActionResult Get()
         {
-            return await _context.OrderDetails.ToListAsync();
+            return Ok(_context.OrderDetails);
         }
 
-        // GET: api/OrderDetails/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<OrderDetail>> GetOrderDetail(int id)
+        [EnableQuery]
+        public IActionResult GetCount()
         {
-            var orderDetail = await _context.OrderDetails.FindAsync(id);
+            var count = _context.OrderDetails.Count();
+            return Ok(count);
+        }
 
+        [EnableQuery]
+        public IActionResult GetOrderDetailDtos()
+        {
+            var orderDetails = _context.OrderDetails;
+            var orderDetailDtos = _mapper.ProjectTo<OrderDetailDTO>(orderDetails);
+            return Ok(orderDetailDtos);
+        }
+
+        [EnableQuery]
+        public IActionResult GetOrderDetailDtos(int key)
+        {
+            var orderDetail = _context.OrderDetails.Find(key);
             if (orderDetail == null)
             {
                 return NotFound();
             }
-
-            return orderDetail;
+            var orderDetailDto = _mapper.Map<OrderDetailDTO>(orderDetail);
+            return Ok(orderDetailDto);
         }
 
-        // PUT: api/OrderDetails/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutOrderDetail(int id, OrderDetail orderDetail)
+        public IActionResult Post([FromBody] OrderDetailDTO orderDetailDto)
         {
-            if (id != orderDetail.Id)
+            var order = _context.Orders.Find(orderDetailDto.OrderId);
+            if (order == null)
+            {
+                return BadRequest("Order does not exist.");
+            }
+
+            var book = _context.Books.Find(orderDetailDto.BookId);
+            if (book == null)
+            {
+                return BadRequest("Book does not exist.");
+            }
+
+            var orderDetail = _mapper.Map<OrderDetail>(orderDetailDto);
+            orderDetail.Order = order;
+            orderDetail.Book = book;
+
+            _context.OrderDetails.Add(orderDetail);
+            _context.SaveChanges();
+            return Created(orderDetail);
+        }
+
+        public IActionResult Put(int key, [FromBody] OrderDetailDTO orderDetailDto)
+        {
+            if (key != orderDetailDto.Id)
             {
                 return BadRequest();
             }
 
+            var orderDetail = _mapper.Map<OrderDetail>(orderDetailDto);
             _context.Entry(orderDetail).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!OrderDetailExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
-            return NoContent();
+            _context.SaveChanges();
+            return Updated(orderDetail);
         }
 
-        // POST: api/OrderDetails
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPost]
-        public async Task<ActionResult<OrderDetail>> PostOrderDetail(OrderDetail orderDetail)
+        public IActionResult Delete(int key)
         {
-            _context.OrderDetails.Add(orderDetail);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction("GetOrderDetail", new { id = orderDetail.Id }, orderDetail);
-        }
-
-        // DELETE: api/OrderDetails/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteOrderDetail(int id)
-        {
-            var orderDetail = await _context.OrderDetails.FindAsync(id);
+            var orderDetail = _context.OrderDetails.Find(key);
             if (orderDetail == null)
             {
                 return NotFound();
             }
 
             _context.OrderDetails.Remove(orderDetail);
-            await _context.SaveChangesAsync();
-
+            _context.SaveChanges();
             return NoContent();
-        }
-
-        private bool OrderDetailExists(int id)
-        {
-            return _context.OrderDetails.Any(e => e.Id == id);
         }
     }
 }

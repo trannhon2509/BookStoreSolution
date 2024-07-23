@@ -1,3 +1,5 @@
+using BookStore.Api.Dtos;
+using BookStore.BOL.Entities;
 using BookStore.Mvc.Models;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
@@ -7,15 +9,36 @@ namespace BookStore.Mvc.Controllers
     public class HomeController : Controller
     {
         private readonly ILogger<HomeController> _logger;
+        private readonly HttpClient _httpClient;
 
-        public HomeController(ILogger<HomeController> logger)
+        public HomeController(ILogger<HomeController> logger, HttpClient httpClient)
         {
             _logger = logger;
+            _httpClient = httpClient;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
-            return View();
+            List<BookDTO> books = new();
+            try
+            {
+                // Replace with your OData API endpoint
+                var response = await _httpClient.GetAsync("http://localhost:5265/odata/Books");
+                response.EnsureSuccessStatusCode();
+
+                var odataResponse = await response.Content.ReadFromJsonAsync<ODataResponse<BookDTO>>();
+                if (odataResponse != null)
+                {
+                    books = odataResponse.Value;
+                }
+            }
+            catch (HttpRequestException e)
+            {
+                _logger.LogError($"Request error: {e.Message}");
+            }
+
+
+            return View(books);
         }
 
         public IActionResult Privacy()
