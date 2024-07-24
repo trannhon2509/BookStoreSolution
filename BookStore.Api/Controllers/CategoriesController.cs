@@ -1,16 +1,15 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using BookStore.BOL.Entities;
-using BookStore.DAL.Data;
 using AutoMapper;
 using Microsoft.AspNetCore.OData.Query;
-using BookStore.Api.Dtos;
 using Microsoft.AspNetCore.OData.Routing.Controllers;
+using BookStore.BOL.Entities;
+using BookStore.DAL.Data;
+using BookStore.Api.Dtos;
+using Microsoft.AspNetCore.OData.Formatter;
+using Microsoft.AspNet.OData.Routing;
 
 namespace BookStore.Api.Controllers
 {
@@ -47,7 +46,8 @@ namespace BookStore.Api.Controllers
         }
 
         [EnableQuery]
-        public IActionResult GetCategoryDtos(int key)
+        [ODataRoute("Categories({key})")]
+        public IActionResult GetById([FromODataUri] int key)
         {
             var category = _context.Categories.Find(key);
             if (category == null)
@@ -90,5 +90,4 @@ namespace BookStore.Api.Controllers
             return NoContent();
         }
     }
-
 }

@@ -3,40 +3,71 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using BookStore.Api.Dtos;
+using Microsoft.Extensions.Logging;
+using System.Net.Http;
+using System.Net.Http.Json;
+using BookStore.Mvc.Models;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Microsoft.EntityFrameworkCore;
-using BookStore.BOL.Entities;
-using BookStore.DAL.Data;
 
 namespace BookStore.Mvc.Controllers
 {
+    [Route("Books")]
     public class BooksController : Controller
     {
-        private readonly ApplicationDbContext _context;
+        private readonly HttpClient _httpClient;
+        private readonly ILogger<BooksController> _logger;
 
-        public BooksController(ApplicationDbContext context)
+        public BooksController(HttpClient httpClient, ILogger<BooksController> logger)
         {
-            _context = context;
+            _httpClient = httpClient;
+            _logger = logger;
         }
 
         // GET: Books
+        [HttpGet]
         public async Task<IActionResult> Index()
         {
-            var applicationDbContext = _context.Books.Include(b => b.Category);
-            return View(await applicationDbContext.ToListAsync());
-        }
+            List<BookDTO> books = new();
+            List<CategoryDTO> categories = new();
 
-        // GET: Books/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null)
+            try
             {
-                return NotFound();
+                var bookResponse = await _httpClient.GetAsync("http://localhost:5265/odata/Books");
+                bookResponse.EnsureSuccessStatusCode();
+
+                var bookOdataResponse = await bookResponse.Content.ReadFromJsonAsync<ODataResponse<BookDTO>>();
+                if (bookOdataResponse != null)
+                {
+                    books = bookOdataResponse.Value;
+                }
+
+                var categoryResponse = await _httpClient.GetAsync("http://localhost:5265/odata/Categories");
+                categoryResponse.EnsureSuccessStatusCode();
+
+                var categoryOdataResponse = await categoryResponse.Content.ReadFromJsonAsync<ODataResponse<CategoryDTO>>();
+                if (categoryOdataResponse != null)
+                {
+                    categories = categoryOdataResponse.Value;
+                }
+            }
+            catch (HttpRequestException e)
+            {
+                _logger.LogError($"Request error: {e.Message}");
             }
 
-            var book = await _context.Books
-                .Include(b => b.Category)
-                .FirstOrDefaultAsync(m => m.Id == id);
+            // Pass categories to the view using ViewBag
+            ViewBag.Categories = categories;
+
+            return View(books);
+        }
+
+
+        // GET: Books/Details/5
+        [HttpGet("details/{id}")]
+        public async Task<IActionResult> Details(int id)
+        {
+            var book = await GetBookById(id);
             if (book == null)
             {
                 return NotFound();
@@ -46,119 +77,159 @@ namespace BookStore.Mvc.Controllers
         }
 
         // GET: Books/Create
-        public IActionResult Create()
+        [HttpGet("create")]
+        public async Task<IActionResult> Create()
         {
-            ViewData["CategoryId"] = new SelectList(_context.Categories, "Id", "Name");
+            List<CategoryDTO> categories = new();
+            try
+            {
+                var response = await _httpClient.GetAsync("http://localhost:5265/odata/Categories");
+                response.EnsureSuccessStatusCode();
+
+                var odataResponse = await response.Content.ReadFromJsonAsync<ODataResponse<CategoryDTO>>();
+                if (odataResponse != null)
+                {
+                    categories = odataResponse.Value;
+                }
+            }
+            catch (HttpRequestException e)
+            {
+                _logger.LogError($"Request error: {e.Message}");
+            }
+
+            ViewBag.CategoryId = new SelectList(categories, "Id", "Name");
             return View();
         }
 
+
         // POST: Books/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
-        [HttpPost]
+        [HttpPost("create")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("Id,Name,Description,Author,Price,ImageUrl,CategoryId")] Book book)
+        public async Task<IActionResult> Create([Bind("Id,Name,Description,Author,Price,ImageUrl,CategoryId")] BookDTO bookDto)
         {
             if (ModelState.IsValid)
             {
-                _context.Add(book);
-                await _context.SaveChangesAsync();
-                return RedirectToAction(nameof(Index));
+                try
+                {
+                    var response = await _httpClient.PostAsJsonAsync("http://localhost:5265/odata/Books", bookDto);
+                    response.EnsureSuccessStatusCode();
+
+                    return RedirectToAction(nameof(Index));
+                }
+                catch (HttpRequestException e)
+                {
+                    _logger.LogError($"Request error: {e.Message}");
+                }
             }
-            ViewData["CategoryId"] = new SelectList(_context.Categories, "Id", "Name", book.CategoryId);
-            return View(book);
+            return View(bookDto);
         }
 
         // GET: Books/Edit/5
-        public async Task<IActionResult> Edit(int? id)
+        [HttpGet("edit/{id}")]
+        public async Task<IActionResult> Edit(int id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var book = await _context.Books.FindAsync(id);
+            var book = await GetBookById(id);
             if (book == null)
             {
                 return NotFound();
             }
-            ViewData["CategoryId"] = new SelectList(_context.Categories, "Id", "Name", book.CategoryId);
+
+            // Fetch categories for dropdown
+            List<CategoryDTO> categories = new();
+            try
+            {
+                var response = await _httpClient.GetAsync("http://localhost:5265/odata/Categories");
+                response.EnsureSuccessStatusCode();
+
+                var odataResponse = await response.Content.ReadFromJsonAsync<ODataResponse<CategoryDTO>>();
+                if (odataResponse != null)
+                {
+                    categories = odataResponse.Value;
+                }
+            }
+            catch (HttpRequestException e)
+            {
+                _logger.LogError($"Request error: {e.Message}");
+            }
+
+            ViewData["CategoryId"] = new SelectList(categories, "Id", "Name", book.CategoryId);
             return View(book);
         }
 
+
         // POST: Books/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
-        [HttpPost]
+        [HttpPost("edit/{id}")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Description,Author,Price,ImageUrl,CategoryId")] Book book)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Description,Author,Price,ImageUrl,CategoryId")] BookDTO bookDto)
         {
-            if (id != book.Id)
+            if (id != bookDto.Id)
             {
-                return NotFound();
+                return BadRequest();
             }
 
             if (ModelState.IsValid)
             {
                 try
                 {
-                    _context.Update(book);
-                    await _context.SaveChangesAsync();
+                    var response = await _httpClient.PutAsJsonAsync($"http://localhost:5265/odata/Books({id})", bookDto);
+                    response.EnsureSuccessStatusCode();
+
+                    return RedirectToAction(nameof(Index));
                 }
-                catch (DbUpdateConcurrencyException)
+                catch (HttpRequestException e)
                 {
-                    if (!BookExists(book.Id))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
+                    _logger.LogError($"Request error: {e.Message}");
                 }
-                return RedirectToAction(nameof(Index));
             }
-            ViewData["CategoryId"] = new SelectList(_context.Categories, "Id", "Name", book.CategoryId);
-            return View(book);
+            return View(bookDto);
         }
 
         // GET: Books/Delete/5
-        public async Task<IActionResult> Delete(int? id)
+        [HttpGet("delete/{id}")]
+        public async Task<IActionResult> Delete(int id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var book = await _context.Books
-                .Include(b => b.Category)
-                .FirstOrDefaultAsync(m => m.Id == id);
+            var book = await GetBookById(id);
             if (book == null)
             {
                 return NotFound();
             }
-
-            return View(book);
-        }
-
-        // POST: Books/Delete/5
-        [HttpPost, ActionName("Delete")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeleteConfirmed(int id)
-        {
-            var book = await _context.Books.FindAsync(id);
-            if (book != null)
-            {
-                _context.Books.Remove(book);
-            }
-
-            await _context.SaveChangesAsync();
+            var response = await _httpClient.DeleteAsync($"http://localhost:5265/odata/Books({id})");
             return RedirectToAction(nameof(Index));
         }
 
-        private bool BookExists(int id)
+        [HttpPost("delete/{id}")]
+        [ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            return _context.Books.Any(e => e.Id == id);
+            try
+            {
+                var response = await _httpClient.DeleteAsync($"http://localhost:5265/odata/Books({id})");
+                response.EnsureSuccessStatusCode();
+            }
+            catch (HttpRequestException e)
+            {
+                _logger.LogError($"Request error: {e.Message}");
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        private async Task<BookDTO> GetBookById(int id)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"http://localhost:5265/odata/Books?$filter=Id eq {id}");
+                response.EnsureSuccessStatusCode();
+
+                var odataResponse = await response.Content.ReadFromJsonAsync<ODataResponse<BookDTO>>();
+                return odataResponse?.Value.FirstOrDefault();
+            }
+            catch (HttpRequestException e)
+            {
+                _logger.LogError($"Request error: {e.Message}");
+                return null;
+            }
         }
     }
 }

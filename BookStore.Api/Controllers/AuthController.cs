@@ -89,12 +89,19 @@ namespace BookStore.Api.Controllers
 
         private string GenerateJwtToken(ApplicationUser user)
         {
-            var claims = new[]
+            var claims = new List<Claim>
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.Email),
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+        new Claim(ClaimTypes.NameIdentifier, user.Id)
+    };
+
+            // Add roles to claims
+            var roles = _userManager.GetRolesAsync(user).Result; // Get roles for the user
+            foreach (var role in roles)
             {
-                new Claim(JwtRegisteredClaimNames.Sub, user.Email),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new Claim(ClaimTypes.NameIdentifier, user.Id)
-            };
+                claims.Add(new Claim(ClaimTypes.Role, role)); // Add role claims
+            }
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -108,6 +115,7 @@ namespace BookStore.Api.Controllers
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
+
     }
 
 
